@@ -1,0 +1,344 @@
+% ----------------------------------------------------------------
+% Article Class (This is a LaTeX2e document)  ********************
+% ----------------------------------------------------------------
+\documentclass{article}
+\usepackage{geometry}  %ZD: text padding
+\usepackage[english]{babel}
+\usepackage{styfiles/proof, styfiles/code, amsmath,amsthm}
+\usepackage{amssymb}  % for "\leadsto"
+\usepackage{bbold}%for typeface: mathbb
+\usepackage{hyperref}
+% THEOREMS -------------------------------------------------------
+\newtheorem{thm}{Theorem}[section]
+\newtheorem{cor}[thm]{Corollary}
+\newtheorem{lem}[thm]{Lemma}
+\newtheorem{prop}[thm]{Proposition}
+\theoremstyle{definition}
+\newtheorem{defn}[thm]{Definition}
+\theoremstyle{remark}
+\newtheorem{rem}[thm]{Remark}
+\numberwithin{equation}{section}
+
+% ----------------------------------------------------------------
+\begin{document}
+
+\newcommand{\env}[1]{[\![#1]\!]\kappa}
+\newcommand{\round}[1]{(\!|#1|\!)}
+
+\title{Defunctionalization}%
+\author{Di Zhao}%
+%\address{address}%
+%\thanks{}%\sqrt{}
+\date{\small{\texttt{zhaodi01@mail.ustc.edu.cn}}}%
+% ----------------------------------------------------------------
+
+\maketitle
+% ----------------------------------------------------------------
+
+Document for the defunctionalization phase.
+
+This stage will eliminate the
+lambda-absraction. The input is the CPS representaion, the output of this
+stage is the FLAT representation.
+
+\section{Calculating free variables}
+
+Still, the first step is to the free variable calculation.
+The input in this phase is the CPS representation (Figure 1).
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{tabular}{rrcl}
+(terms) & $K$ & $\to$ & \textsf{letval }$x\ =\ V$ \textsf{ in } $K$ \\
+        &     & $|$ & \textsf{letcont }$k\ x = K$\textsf{ in }$K'$\\
+        &     & $|$ &  $k\ x$ \\
+        &     & $|$ & $f\ k\ x$ \\
+        &     & $|$ & \textsf{case} $x$ \textsf{of}
+            $\overrightarrow{\texttt{in}i_j\ x_j\ \texttt{=>}\ K_j}$\\
+        &     & $|$ & \textsf{letprim} $x=PrimOp\ \vec{y}
+         \texttt{ in}\ K$\\
+        &     & $|$ &\textsf{if} $x$ \textsf{then} $k_1\ \textsf{else}\ k_2$\\
+        &     & $|$ &\textsf{letfix }$f\ k\ x=K$\textsf{ in }$K'$\\
+
+(values) & $V$ & $\to$ & () $\ \ |$ \textsf{ true } $|$ \textsf{ false}\\
+        &     & $|$ & $i\ \ $ $\ |\ $  $\ "s"$\\
+        &     & $|$ & ($x_1,x_2, ..., x_n$)\\
+        &     & $|$ & \textsf{in}$i\ x$\\
+        &     & $|$ &  $\lambda k\ x.K$ \\
+        &     & $|$ &  $\texttt{\#}i\ x$ \\
+
+(primitive & $PrimOp$ & $\to$ & $+\ $ $|\ -\ |$ $\ *$\\
+operations) &     & $|$ & $>\ |\ <\ |\ =$\\
+        &     & $|$ & $\textsf{andalso }\ |\ \textsf{orelse }\ |\ \textsf{ not}$\\
+        &     & $|$ & \textsf{print} $|$ \textsf{int2string}\\
+\end{tabular}
+  \caption{CPS syntax}
+  \label{fig-sub}
+\end{figure}
+
+The procedure is identical will that in the closure conversion
+. The functions are illustrated in Figure 2 and Figure 3.
+
+ (The code should be reusable. However as we put the free variable information in the
+  closure syntax tree earlier, so the function code cannot be reused directly. Maybe its
+  better to store that in the CPS syntax tree.)
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+\mathcal{F}\ &:\ \textrm{Cps.t} \to \textrm{string set}\\     %head
+\mathcal{F}(\textsf{letval }x=V\textsf{ in }K)
+    &=(\mathcal{F}(K)/x)\cup \mathcal{H}(V)\\   %letval
+\mathcal{F}(\textsf{letcont }k\ x=K\textsf{ in }K')
+    &=(\mathcal{F}(K)/x)\cup (\mathcal{F}(K')/k)\\   %letcont
+\mathcal{F}(k\ x)
+    &=\{k, x\}\\   %cont apply
+\mathcal{F}(f\ k\ x)
+    &=\{f, k, x\}\\   %func apply
+\mathcal{F}(\textsf{case}\ x\ \textsf{of}
+            \ \overrightarrow{\texttt{in}i_j\ x_j\ \texttt{=>}\ K_j})
+    &=\{x\}\cup (\mathcal{F}(K_1)/x_1)\cup ... \cup (\mathcal{F}(K_n)/x_n)\\
+        & (\textrm{where}\ j = 1,\ ...\ , n)\\   %case
+\mathcal{F}(\textsf{letprim }x=PrimOp\ \vec{y}\textsf{ in}\ K)
+    &=(\mathcal{F}(K)/x)\cup \texttt{set}(\vec{y})\\   %let prims
+\mathcal{F}(\textsf{if }x\textsf{ then }k_1\ \textsf{else }k_2)
+    &=\{x, k_1, k_2\}\\   %if
+\mathcal{F}(\textsf{letfix }f\ k\ x=K\textsf{ in }K')
+    &=(\mathcal{F}(K)-\{f,k,x\})\cup (\mathcal{F}(K')/f)   %let fix
+\end{align*}
+  \caption{Calculating Free Variables in CPS terms}
+  \label{fig-sub}
+\end{figure}
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+\mathcal{H}\ &:\ \textrm{Cps.v} \to \textrm{string set}\\     %head
+\mathcal{H}(()) &={\O}\\   %empty
+\mathcal{H}(\texttt{true}) &={\O}\\   %true
+\mathcal{H}(\texttt{false}) &={\O}\\   %false
+\mathcal{H}(i) &={\O}\\   %integer
+\mathcal{H}("s") &={\O}\\   %string
+\mathcal{H}((x_1, x_2,\ ...\ , x_n)) &=\{x_1, x_2,\ ...\ , x_n\}\\   %tuple
+\mathcal{H}(\textsf{in}i\ x) &= \{x\}\\        %tag
+\mathcal{H}(\texttt{\#}i\ x) &= \{x\}\\        %proj
+\mathcal{H}(\lambda k\ x.K) &= \mathcal{F}(K)-\{k, x\}      %abstraction
+\end{align*}
+  \caption{Calculating Free Variables in CPS values}
+  \label{fig-sub}
+\end{figure}
+
+
+\section{Target Syntax}
+
+The final output of this stage is a defunctionalized syntax.
+We name it as Defunc. The syntax is shown in Figure 4.
+
+A program consists of two functions: $applycont$, $applyfunc$ and an expression.
+The function $applyfunc$ takes three arguments $(f, k, x)$ and its body is a case
+expression whose condition is $f$. Similarly, The function $applycont$ takes two
+arguments $(k, x)$ and its body is a case expression whose condition is $k$.
+
+As for terms (expressions), there won't be any abstractions or function definitions.
+Function definitions are replaced by tagged values and the code will be inserted into
+the $applycont$ or $applyfunc$ function.
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{tabular}{rrcl}
+(program) & $p$ & $\to$ & $applyfunc(f, k, x)\{K_1\}$\\
+        &       &       & $applycont(k_1, x_1)\{K_2\}$\\
+        &       &       &  $K_3$\\
+
+(terms) & $K, T$ & $\to$ & \textsf{letval }$x\ =\ V$ \textsf{ in } $K$ \\
+        &     & $|$ &  $applycont(k,\ x)$ \\
+        &     & $|$ &  $applyfunc(f,\ k,\ x)$ \\
+        &     & $|$ & \textsf{case} $x$ \textsf{of}
+             $\overrightarrow{\textsf{in}i_j\ x_j \Rightarrow K_j}$\\
+        &     & $|$ & \textsf{letprim} $x=PrimOp\ \vec{y}
+         \textsf{ in}\ K$\\
+        &     & $|$ &\textsf{if} $x$ \textsf{then} $K\ \textsf{else}\ K'$\\
+
+(values) & $V$ & $\to$ & () $\ \ |$ \textsf{ true } $|$ \textsf{ false}\\
+        &     & $|$ & $i\ \ $ $\ |\ $  $\ "s"$\\
+        &     & $|$ & ($x_1,x_2, ..., x_n$)\\
+        &     & $|$ & \textsf{in}$i\ x$\\
+        &     & $|$ &  $\lambda k\ x.K$ \\
+        &     & $|$ &  $\texttt{\#}i\ x$ \\
+
+(primitive & $PrimOp$ & $\to$ & $+\ $ $|\ -\ |$ $\ *$\\
+operations) &     & $|$ & $>\ |\ <\ |\ =$\\
+        &     & $|$ & $\textsf{andalso }\ |\ \textsf{orelse }\ |\ \textsf{ not}$\\
+        &     & $|$ & \textsf{print} $|$ \textsf{int2string}\\
+\end{tabular}
+  \caption{Defunc syntax}
+  \label{fig-sub}
+\end{figure}
+
+
+\section{Defunctionalization}
+
+The functions performing defunctionalization is defined in Figure 5, 6, 7.
+The functions translate CPS syntax into Defunc syntax by adding case branches
+into the function $applyfunc$ and $applycont$, to represent function definitions.
+
+Function $\textsf{replace}(x, y, K)$ replaces the free existences of $x$ with $y$
+in term $K$.
+
+\newgeometry{left=2.5cm,bottom=2cm}
+
+\begin{figure}[!ht]
+\begin{tabular}{c}
+$K_1, applyfunc(fa, ka, xa)\{K_3\}, applycont(ka', xa')\{K_4\}\leadsto$ \kern2cm\\
+         \kern5cm  $ K'_1, applyfunc(fa, ka, xa)\{K_5\}, applycont(ka', xa')\{K_6\}$\\
+ $ K_2, applyfunc(fa, ka, xa)\{K_5\}, applycont(ka', xa')\{K_6\} \leadsto$ \kern2cm\\
+$$\infer[]{\textsf{letcont }k\ x=K_1\textsf{ in }K_2, applyfunc(fa, ka, xa)\{K_3\},
+    applycont(ka', xa')\{K_4\}\leadsto \kern2cm }
+        { \kern5cm  K'_2, applyfunc(fa, ka, xa)\{K_7\}, applycont(ka', xa')
+            \{\textsf{case}\ ka'\ \textsf{of}\ \vec{b}\} }$$\\\
+ \kern3.6cm $\textsf{letval}\ env=(y_1,\ y_2,\ ...\ ,\ y_m)\ \textsf{in}$
+    $\textsf{letval}\ k=\texttt{in}i\ env\ \textsf{in}\ K'_2,$\\
+   \kern-0.9cm   $applyfunc(fa, ka, xa)\{K_7\},$\\
+  \kern4.6cm  $applycont(ka', xa')\{\textsf{case}\ ka'\ \textsf{of}
+           \ \textsf{in}i\ env \Rightarrow $
+           $ \textsf{letval }y_1=\texttt{\#}1\ env\ \textsf{in}$\\
+            \kern11cm   $\textsf{letval }y_2=\texttt{\#}2\ env\ \textsf{in}$\\
+            \kern11cm   ...\\
+            \kern11.2cm   $\textsf{letval }y_m=\texttt{\#}m\ env\ \textsf{in}$\\
+           \kern10.6cm $\textsf{replace}(x, xa', K'_1) $\\
+           \kern4.5cm $::\vec{b}\}$\\
+   $ \textrm{(where}\ i\ \textrm{is a freshed tag value and}
+     \ \{y_1,\ y_2,\ ...\ ,\ y_m\}=\mathcal{F}(K_1)/x)$ \\\\       %letcont
+$$\infer[]{k\ x, applyfunc(fa, ka, xa)\{K_1\},
+   applycont(ka', xa')\{K_2\}
+   \leadsto  \kern4cm }{}\\
+ \kern4cm  $applycont(k, x),  applyfunc(fa, ka, xa)\{K_1\},
+    applycont(ka', xa')\{K_2\}$\\\\  %cont apply
+$$\infer[]{f\ k\ x, applyfunc(fa, ka, xa)\{K_1\},
+   applycont(ka', xa')\{K_2\} \leadsto  \kern4cm }{}\\
+ \kern4cm  $applyfunc(f, k, x),  applyfunc(fa, ka, xa)\{K_1\},
+    applycont(ka', xa')\{K_2\}$\\\\  %func apply
+$K_1, applyfunc(fa, ka, xa)\{T\}, applycont(ka', xa')\{T'\} \leadsto $ \kern2cm\\
+       \kern5cm $ K_1', applyfunc(fa, ka, xa)\{T_1\}, applycont(ka', xa')\{T'_1\}$\\
+$K_2, applyfunc(fa, ka, xa)\{T_1\}, applycont(ka', xa')\{T'_1\} \leadsto $ \kern2cm\\
+       \kern5cm $ K_2', applyfunc(fa, ka, xa)\{T_2\}, applycont(ka', xa')\{T'_2\}$\\
+       ...\\
+$K_m, applyfunc(fa, ka, xa)\{T_{m-1}\}, applycont(ka', xa')\{T'_{m-1}\}
+ \leadsto $ \kern2cm\\
+       \kern5cm $ K_m', applyfunc(fa, ka, xa)\{T_m\}, applycont(ka', xa')\{T'_m\}$\\
+$$\infer[]{\textsf{case}\ x\ \textsf{of}
+           \ \overrightarrow{\texttt{in}i_j\ x_j\ \texttt{=>}\ K_j},
+          applyfunc(fa, ka, xa)\{T\},
+   applycont(ka', xa')\{T'\}
+   \leadsto  \kern2cm }
+    {}\\
+\kern2cm $\textsf{case}\ x\ \textsf{of}
+           \ \overrightarrow{\texttt{in}i_j\ x_j\ \texttt{=>}\ K'_j},
+          applyfunc(fa, ka, xa)\{T_m\},
+   applycont(ka', xa')\{T'_m\}$\\
+$ (\textrm{where}\ j=1,\ 2,\ ...\ ,\ m$ )\\\\       %case
+$K, applyfunc(fa, ka, xa)\{T_1\}, applycont(ka', xa')\{T_2\} \leadsto $ \kern2cm\\
+       \kern5cm $ K_1, applyfunc(fa, ka, xa)\{T_3\}, applycont(ka', xa')\{T_4\}$\\
+$$\infer[]{\textsf{letprim }x=PrimOp\ \vec{y}\texttt{ in}\ K,
+  applyfunc(fa, ka, xa)\{T_1\}, applycont(ka', xa')\{T_2\}
+   \leadsto  \kern2cm }{}\\
+\kern2cm  $ \textsf{letprim }x=PrimOp\ \vec{y}\texttt{ in}\ K_1
+   ,  applyfunc(fa, ka, xa)\{T_3\},   applycont(ka', xa')\{T_4\}$\\\\   %let prims
+$$\infer[]{\textsf{if }x\textsf{ then }k_1\ \textsf{else }k_2 ,
+  applyfunc(fa, ka, xa)\{T_1\}, applycont(ka', xa')\{T_2\}
+   \leadsto  \kern2cm }{}\\
+ \kern3cm $  \textsf{letval }x_1=()\textsf{ in}$
+  $  \textsf{if }x\textsf{ then } applycont(k_1\ x_1)
+  \textsf{ else } applycont(k_2\ x_1),$\\
+ \kern1cm $ applyfunc(fa, ka, xa)\{T_1\}, applycont(ka', xa')\{T_2\}$\\ %if
+\end{tabular}
+ \caption{Defunctionalization for CPS terms}
+  \label{fig-sub}
+\end{figure}
+
+\begin{figure}[!ht]
+\begin{tabular}{c}
+$K_1, applyfunc(fa, ka, xa)\{K_3\}, applycont(ka_1, xa_1)\{K_4\}\leadsto$ \kern2cm\\
+         \kern5cm  $ K'_1, applyfunc(fa, ka, xa)\{K_5\}, applycont(ka', xa')\{K_6\}$\\
+ $ K_2, applyfunc(fa, ka, xa)\{K_5\}, applycont(ka', xa')\{K_6\} \leadsto$ \kern2cm\\
+$$\infer[]{\textsf{letfix }f\ k\ x=K_1\textsf{ in }K_2, applyfunc(fa, ka, xa)\{K_3\},
+    applycont(ka_1, xa_1)\{K_4\}\leadsto \kern2cm }
+        {\kern5cm  K'_2, applyfunc(fa, ka, xa)\{\textsf{case}\ fa\ \textsf{of}\ \vec{b}\},
+         applycont(ka', xa')\{K_7\}       }$$\\
+ \kern2.2cm $\textsf{letval}\ env=(y_1,\ y_2,\ ...\ ,\ y_m)\ \textsf{in}$
+    $\textsf{letval}\ f=\texttt{in}i\ env\ \textsf{in}\ K'_2,$\\
+   \kern3.3cm   $applyfunc(fa, ka, xa)\{\textsf{case}\ fa\ \textsf{of}
+            \ \textsf{in}i\ env \Rightarrow $
+             $\textsf{letval}\ f=\texttt{in}i\ env\ \textsf{in}$\\
+   \kern10.1cm  $ \textsf{letval }y_1=\texttt{\#}1\ env\ \textsf{in}$\\
+            \kern10.1cm   $\textsf{letval }y_2=\texttt{\#}2\ env\ \textsf{in}$\\
+            \kern8cm   ...\\
+            \kern10.3cm   $\textsf{letval }y_m=\texttt{\#}m\ env\ \textsf{in}$\\
+           \kern11.8cm $\textsf{replace}(k, ka, \textsf{replace}(x, xa, K'_1)) $\\
+           \kern4cm $::\vec{b}\},$\\
+  \kern-3cm  $applycont(ka', xa')\{K_7\}$\\
+   $ \textrm{(where}\ i\ \textrm{is a freshed tag value and}
+     \ \{y_1,\ y_2,\ ...\ ,\ y_m\}=\mathcal{F}(K_1)-\{f,k,x\})$ \\\\       %letfix
+$K_1, applyfunc(fa, ka, xa)\{K_3\}, applycont(ka_1, xa_1)\{K_4\}\leadsto$ \kern2cm\\
+         \kern5cm  $ K'_1, applyfunc(fa, ka, xa)\{K_5\}, applycont(ka', xa')\{K_6\}$\\
+ $ K_2, applyfunc(fa, ka, xa)\{K_5\}, applycont(ka', xa')\{K_6\} \leadsto$ \kern2cm\\
+$$\infer[]{\textsf{letval }x=\lambda k\ z.K_1\textsf{ in }K_2
+    , applyfunc(fa, ka, xa)\{K_3\}, applycont(ka_1, xa_1)\{K_4\}\leadsto \kern2cm }
+        {\kern5cm  K'_2, applyfunc(fa, ka, xa)\{\textsf{case}\ fa\ \textsf{of}\ \vec{b}\},
+         applycont(ka', xa')\{K_7\}       }$$\\
+ \kern2.2cm $\textsf{letval}\ env=(y_1,\ y_2,\ ...\ ,\ y_m)\ \textsf{in}$
+    $\textsf{letval}\ x=\texttt{in}i\ env\ \textsf{in}\ K'_2,$\\
+   \kern3.3cm   $applyfunc(fa, ka, xa)\{\textsf{case}\ fa\ \textsf{of}
+            \ \textsf{in}i\ env \Rightarrow $
+             $ \textsf{letval }y_1=\texttt{\#}1\ env\ \textsf{in}$\\
+            \kern10.1cm   $\textsf{letval }y_2=\texttt{\#}2\ env\ \textsf{in}$\\
+            \kern8cm   ...\\
+            \kern10.3cm   $\textsf{letval }y_m=\texttt{\#}m\ env\ \textsf{in}$\\
+           \kern11.8cm $\textsf{replace}(k, ka, \textsf{replace}(z, xa, K'_1)) $\\
+           \kern4cm $::\vec{b}\},$\\
+  \kern-3cm  $applycont(ka', xa')\{K_7\}$\\
+   $ \textrm{(where}\ i\ \textrm{is a freshed tag value and}
+     \ \{y_1,\ y_2,\ ...\ ,\ y_m\}=\mathcal{F}(K_1)-\{k,z\})$ \\\\       %letval func
+$K, applyfunc(fa, ka, xa)\{T_1\}, applycont(ka', xa')\{T_2\} \leadsto $ \kern2cm\\
+       \kern5cm $ K_1, applyfunc(fa, ka, xa)\{T_3\}, applycont(ka', xa')\{T_4\}$\\
+$$\infer[]{\textsf{letval }x=V\texttt{ in}\ K,
+  applyfunc(fa, ka, xa)\{T_1\}, applycont(ka', xa')\{T_2\}
+   \leadsto  \kern2cm }{}\\
+\kern3cm  $ \textsf{letval }x=V\texttt{ in}\ K_1
+   ,  applyfunc(fa, ka, xa)\{T_3\},   applycont(ka', xa')\{T_4\}$\\
+(given that $V$ is not a lambda abstraction.)   %letval
+\end{tabular}
+ \caption{Defunctionalization for CPS terms(continued)}
+  \label{fig-sub}
+\end{figure}
+
+\restoregeometry
+
+\section{Code generation}
+
+The code generation process for the defunctionalized syntax tree is intuitive.
+One thing to be noticed is that the \textsf{case} expression may contain a lot of
+bindings (in contrast, if we perform code generation following the closure conversion
+process, only a tuple may be defined there in case of function calls).
+In this way, the C code for each switch case should be in a block (surrounded by
+a pair of \texttt{"\{\}"}).
+
+Moreover, as the $appl\_func$ function and $apply\_cont$ function may be
+ mutually recursive, we may need to output the function declarations for them first.
+
+The modifications should also be included when generation code for garbage collection.\\\\
+
+\noindent{
+Updates:
+\begin{description}
+   \item[15-9-5:]
+  Added boolean values and corresponding operations. Changed \texttt{if0}
+  expression into \texttt{if} expression.
+\end{description}
+}
+
+\end{document}

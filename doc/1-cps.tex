@@ -1,0 +1,265 @@
+% ----------------------------------------------------------------
+% Article Class (This is a LaTeX2e document)  ********************
+% ----------------------------------------------------------------
+\documentclass{article}
+\usepackage[english]{babel}
+\usepackage{styfiles/proof, styfiles/code, amsmath,amsthm}
+\usepackage{bbold}%for typeface: mathbb
+\usepackage{hyperref}
+% THEOREMS -------------------------------------------------------
+\newtheorem{thm}{Theorem}[section]
+\newtheorem{cor}[thm]{Corollary}
+\newtheorem{lem}[thm]{Lemma}
+\newtheorem{prop}[thm]{Proposition}
+\theoremstyle{definition}
+\newtheorem{defn}[thm]{Definition}
+\theoremstyle{remark}
+\newtheorem{rem}[thm]{Remark}
+\numberwithin{equation}{section}
+
+% ----------------------------------------------------------------
+\begin{document}
+
+\newcommand{\env}[1]{[\![#1]\!]\kappa}
+\newcommand{\round}[1]{(\!|#1|\!)}
+
+\title{CPS Conversion}%
+\author{Di Zhao}%
+%\address{address}%
+%\thanks{}%\sqrt{}
+\date{\small{\texttt{zhaodi01@mail.ustc.edu.cn}}}%
+% ----------------------------------------------------------------
+
+\maketitle
+% ----------------------------------------------------------------
+
+Document related to the CPS conversion phase.
+
+\section{ML Syntax}
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{tabular}{rclr}
+$e$ & $\to$ & $x$ & \emph{variable}\\
+  %   &   & $t$ \textsf{primop} $t'$& \emph{arithmetic term}\\
+     & $|$   & \texttt{()} & \emph{empty}\\
+     & $|$   & \texttt{true} & \emph{true}\\
+     & $|$   & \texttt{false} & \emph{false}\\
+     & $|$   & $i$ & \emph{integer}\\
+     & $|$   & $"s"$ & \emph{string}\\
+     &  $|$  & \texttt{fn} $x$\texttt{ => }$e$ & \emph{abstraction}\\
+     &  $|$  & $e_1\ e_2$ & \emph{application}\\
+     &  $|$  & ($e_1,e_2, ..., e_n$) & \emph{tuple}\\
+     &  $|$  & \texttt{\#}$i\ e$  & \emph{projection}\\
+     &  $|$  & \textsf{in}$i\ e$  & \emph{tagged value}\\
+     &  $|$  & \textsf{case }$e$ \textsf{of }
+            $\overrightarrow{\texttt{in}i_j\ x_j\texttt{ => } e_j}$ & \emph{case}\\
+     &  $|$  & $PrimOp\ \vec{e}$ & \emph{operations}\\
+     &  $|$  & \textsf{let val }$x=e_1$\textsf{ in }$e_2$\textsf{ end}
+         & \emph{let}\\
+     &  $|$  & \textsf{if }$e$\textsf{ then }$e_1$\textsf{ else }$e_2$
+         & \emph{if}\\
+     &  $|$  & \textsf{let fix }$f\ x=e_1$\textsf{ in }$e_2$\textsf{ end}
+         & \emph{fix}\\
+$PrimOp$ & $\to$ & $+$ & \emph{add}\\
+     & $|$ & $-$ & \emph{sub}\\
+     & $|$ & $*$ & \emph{times}\\
+     & $|$ & $>$ & \emph{less than}\\
+     & $|$ & $<$ & \emph{larger than}\\
+     & $|$ & $=$ & \emph{equals}\\
+     & $|$ & $\texttt{not}$ & \emph{not}\\
+     & $|$ & $\texttt{andalso}$ & \emph{and also}\\
+     & $|$ & $\texttt{orelse}$ & \emph{or else}\\
+     & $|$ & $\texttt{print}$ & \emph{print}\\
+     & $|$ & $\texttt{int2string}$ & \emph{toString}\\
+
+\end{tabular}
+  \caption{ML Syntax}
+  \label{fig-sub}
+\end{figure}
+
+Figure 1 illustrates the syntax of our source language - a subset
+ of ML. Here we use the metavariable $e$ to represent an arbitrary
+ expression of the source language. Similarly, $x$ is a metavariable
+ranging over variables.\\
+
+\noindent{Updates:
+\begin{description}
+  \item[15-7-1:]The case expression is changed to: \textsf{case }$e$ \textsf{of }
+            $\overrightarrow{\texttt{in}i_j\ x_j\texttt{ => } e_j}$ ,
+to expand the original dualistic cases into indefinite cases, to facilitate generating the
+ \texttt{apply} function in the defunctionalization phase. $i$ is the integer representing
+ the type constructor. We need a front end
+to map the constructors in \texttt{datatype} definitions with integers.
+
+We may \textcolor[rgb]{1.00,0.00,0.00}{\textbf{need a typing system}}
+to generated executive ML code for each
+intermediate representation. (We don't know how many labels there are.)
+
+  \item[15-9-5:]
+  Added boolean values and corresponding operations. Changed \texttt{if0}
+  expression into \texttt{if} expression.
+\end{description}
+}
+
+\section{CPS Syntax}
+
+Figure 2 illustrates the syntax of the CPS language corresponding
+to the ML syntax in Figure 1. In the CPS syntax, we introduce the metavariable
+ $k$ to represent a continuation. \\
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{tabular}{rrcl}
+(terms) & $K$ & $\to$ & \textsf{letval }$x\ =\ V$ \textsf{ in } $K$ \\
+        &     & $|$ & \textsf{letcont }$k\ x = K$\textsf{ in }$K'$\\
+        &     & $|$ &  $k\ x$ \\
+        &     & $|$ & $f\ k\ x$ \\
+        &     & $|$ & \textsf{case} $x$ \textsf{of}
+            $\overrightarrow{\texttt{in}i_j\ x_j\ \texttt{=>}\ K_j}$\\
+        &     & $|$ & \textsf{letprim} $x=PrimOp\ \vec{y}
+         \texttt{ in}\ K$\\
+        &     & $|$ &\textsf{if} $x$ \textsf{then} $k_1\ \textsf{else}\ k_2$\\
+        &     & $|$ &\textsf{letfix }$f\ k\ x=K$\textsf{ in }$K'$\\
+
+(values) & $V$ & $\to$ & () $\ \ |$ \textsf{ true } $|$ \textsf{ false}\\
+        &     & $|$ & $i\ \ $ $\ |\ $  $\ "s"$\\
+        &     & $|$ & ($x_1,x_2, ..., x_n$)\\
+        &     & $|$ & \textsf{in}$i\ x$\\
+        &     & $|$ &  $\lambda k\ x.K$ \\
+        &     & $|$ &  $\texttt{\#}i\ x$ \\
+
+(primitive & $PrimOp$ & $\to$ & $+\ $ $|\ -\ |$ $\ *$\\
+operations) &     & $|$ & $>\ |\ <\ |\ =$\\
+        &     & $|$ & $\textsf{andalso }\ |\ \textsf{orelse }\ |\ \textsf{ not}$\\
+        &     & $|$ & \textsf{print} $|$ \textsf{int2string}\\
+\end{tabular}
+  \caption{CPS syntax}
+  \label{fig-sub}
+\end{figure}
+
+
+
+\noindent{
+Updates:
+\begin{description}
+  \item[15-7-1:]
+  Removed $\texttt{let}\ x = \pi _i\ y\ \texttt{in}\ K$ to simplify the syntax
+  and rules. Instead, add $\texttt{\#}i\ x$ to the values.
+
+  Change the form of \texttt{case} to enable multiple cases (and to
+  make the transformations look better?).
+
+   \item[15-9-5:]
+  Added boolean values and corresponding operations. Changed \texttt{if0}
+  expression into \texttt{if} expression.
+\end{description}
+}
+
+
+\section{CPS Conversion}
+
+In this section we will discuss how to perform CPS conversion.
+Expressions in ML can be translated into untyped CPS
+terms using the function shown in Figure 3. This is an adaptation
+of the standard higher-order one-pass call-by-value transformation
+(Danvy and Filinski 1992).
+
+ \begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+ [\![\cdot]\!] \ &\ :\ \textrm{ML}\rightarrow(\textrm{Var}\rightarrow
+    \textrm{CTm})\rightarrow \textrm{CTm}\\     %head
+   \env{x} \  &=\  \kappa (x)\\             %var
+ \env{\texttt{()}} \  &=\  \texttt{letval}\ x=()\ \texttt{in}\ \kappa (x)\\ %empty
+\env{\texttt{true}} \  &=\  \texttt{letval}\ x=\texttt{true}\ \texttt{in}\ \kappa (x)\\ %true
+\env{\texttt{false}}\  &=
+    \  \texttt{letval}\ x=\texttt{false}\ \texttt{in}\ \kappa (x)\\ %false
+ \env{i} \  &=\  \texttt{letval}\ x=i\ \texttt{in}\ \kappa (x)\\    %int
+ \env{"s"} \  &=\  \texttt{letval}\ x="s"\ \texttt{in}\ \kappa (x)\\    %string
+ \env{e_1\ e_2} \  &=\  [\![e_1]\!](\mathbb{\Lambda}z_1.[\![e_2]\!]
+ (\mathbb{\Lambda}z_2.\texttt{letcont}\ k\ x=
+    \kappa (x)\ \texttt{in}\ z_1\ k\ z_2))\\ %app
+  \env{(e_1, ... , e_n)}
+        &=\round{[e_1, ... , e_n], \texttt{nil}}(\mathbb{\Lambda}\vec{l}.\\
+        &\kern1cm \texttt{letval}\ x=\texttt{tuple}(\vec{l})\
+        \texttt{in}\ \kappa (x))\\            % tuple
+   [\![\texttt{in}i\ e]\!]\kappa \  &=\  [\![e]\!](\mathbb{\Lambda}z.
+        \texttt{letval}\ x=\texttt{in}i\ z\ \texttt{in}\ \kappa (x))\\    %tag
+  [\![\texttt{\#}i\ e]\!]\kappa \  &=\  [\![e]\!](\mathbb{\Lambda}z.
+        \texttt{letval}\ x=\texttt{\#}i\ z\ \texttt{in}\ \kappa (x))\\       %proj
+  \env{\texttt{fn }x\texttt{ => }e}\  &=\ \texttt{letval}\ f=\lambda k\ x.[\![e]\!]
+    (\mathbb{\Lambda}z.k\ z)\ \texttt{in}\ \kappa (f)\\     %abstract
+  [\![\texttt{let\ val}\ x=e_1\ \texttt{in}\ e_2\ \texttt{end}]\!]\kappa
+   &= \texttt{letcont}\ j\ x=[\![e_2]\!]\ \kappa\ \texttt{in}
+            \ [\![e_1]\!](\mathbb{\Lambda}z.j\ z)\\     %letval
+  \kern-1.2cm [\![\texttt{case}\ e\ \texttt{of}
+  \ \overrightarrow{\texttt{in}i_j\ x_j\ \texttt{=>}\ e_j}]\!]\kappa
+     &=\ [\![e]\!](\mathbb{\Lambda}z.\texttt{letcont}\ k_0\ x_0=
+            \kappa (x_0)\ \texttt{in}\\
+         &\kern1cm   \texttt{letcont}\ k_1\ x_1=
+            [\![e_1]\!](\mathbb{\Lambda}z.k_0\ z)\ \texttt{in}\\
+     &\kern1.2cm \texttt{letcont}\ k_2\ x_2=[\![e_2]\!]
+        (\mathbb{\Lambda}z.k_0\ z)\ \texttt{in}\\
+     &\kern1.6cm  ...\\
+      &\kern2cm \texttt{letcont}\ k_n\ x_n=[\![e_n]\!]
+        (\mathbb{\Lambda}z.k_0\ z)\ \texttt{in}\\
+      & \kern2.4cm \texttt{case}\ z\ \texttt{of}
+      \ \overrightarrow{\texttt{in}i_j\ y_j\ \texttt{=>}\ k_j\ y_j})\\
+      & (\textrm{where}\ j = 1,2,\ ...\ ,n)\\    %case
+     \env{PrimOp\ \vec{e}\ }
+       &=\round{\vec{e}, \texttt{nil}}(\mathbb{\Lambda}\vec{l}.   \texttt{letprim}
+       \ x=PrimOp\ \vec{l}\ \texttt{in}\ \kappa (x)))\\  %prims
+   \env{\texttt{let fix }f\ x\texttt{ = }e_1 \texttt{ in }e_2}\  &=
+   \ \texttt{letfix}\ f\ k\ x=[\![e_1]\!]
+    (\mathbb{\Lambda}z.k\ z)\ \texttt{in}\ \env{e_2}\\     %fix
+    \kern-1.2cm [\![\texttt{if}\ e_1\ \texttt{then}\ e_2
+        \texttt{ else}\ e_3]\!]\kappa
+     &=\ [\![e_1]\!](\mathbb{\Lambda}z.\texttt{letcont}\ k_0\ x_0=
+            \kappa (x_0)\ \texttt{in}\\
+         &\kern1cm   \texttt{letcont}\ k_1\ x_1=
+            [\![e_2]\!](\mathbb{\Lambda}z.k_0\ z)\ \texttt{in}\\
+     &\kern1.2cm     \texttt{letcont}\ k_2\ x_2=[\![e_3]\!]
+        (\mathbb{\Lambda}z.k_0\ z)\ \texttt{in}\\
+     &\kern2cm    \texttt{if}\ z\ \texttt{then}\ k_1\ \texttt{else}\ k_2)    %if0
+\end{align*}
+  \caption{CPS Conversion}
+  \label{fig-sub}
+\end{figure}
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+    \round{\cdot}\ :\ \textrm{ML list * string list}&\to(\textrm{string list}\to
+     \textrm{CTm})\to \textrm{CTm}\\     %head
+     \round{\texttt{[]}, \omega}\eta
+        &=\eta (\texttt{rev} (\omega))\\   %empty
+     \round{e::es, \omega}\eta
+       &=\  [\![e]\!](\mathbb{\Lambda}x.
+          \round{es,x::\omega}\eta )     %some
+\end{align*}
+
+  \caption{CPS Conversion for tuples}
+  \label{fig-sub}
+\end{figure}
+
+$\ $\\
+
+\noindent{
+Updates:
+\begin{description}
+  \item[15-7-2:] Modified the conversion rule for \texttt{case} to enable
+  multiple cases. Modified the rule for projection operation (see updates for 15-7-1).
+  
+\item[15-9-5:]
+  Added conversion rules for boolean values. Changed \texttt{if0}
+  expression into \texttt{if} expression.
+\end{description}
+}
+
+
+\end{document}
