@@ -1,0 +1,535 @@
+% ----------------------------------------------------------------
+% Article Class (This is a LaTeX2e document)  ********************
+% ----------------------------------------------------------------
+\documentclass{article}
+\usepackage[english]{babel}
+\usepackage{styfiles/proof, styfiles/code, amsmath,amsthm}
+\usepackage{bbold}%for typeface: mathbb
+\usepackage{hyperref}
+% THEOREMS -------------------------------------------------------
+\newtheorem{thm}{Theorem}[section]
+\newtheorem{cor}[thm]{Corollary}
+\newtheorem{lem}[thm]{Lemma}
+\newtheorem{prop}[thm]{Proposition}
+\theoremstyle{definition}
+\newtheorem{defn}[thm]{Definition}
+\theoremstyle{remark}
+\newtheorem{rem}[thm]{Remark}
+\numberwithin{equation}{section}
+
+% ----------------------------------------------------------------
+\begin{document}
+
+\newcommand{\env}[1]{[\![#1]\!]\kappa}
+\newcommand{\round}[1]{(\!|#1|\!)}
+
+\title{Closure Conversion}%
+\author{Di Zhao}%
+%\address{address}%
+%\thanks{}%\sqrt{}
+\date{\small{\texttt{zhaodi01@mail.ustc.edu.cn}}}%
+% ----------------------------------------------------------------
+
+\maketitle
+% ----------------------------------------------------------------
+
+This is the second assignment of Advanced Topics in Software
+Technologies. Previously in this course we have learned about the concept
+ of the Continuation-Passing Style (CPS), and implemented the CPS convert function
+ from the ML source language to the continuation-passing language. In this
+ assignment, we will take a step further by looking at another crucial
+ phase in compiling functional languages - closure conversion.
+
+To start with, we will introduce an example to help understanding the concept
+ and purpose of closure conversion. Then you'll need to implement the preparation
+ step for closure conversion - free variables calculating. After that, you need
+ to get familiar with the syntax of the target language in this lab - a
+ closure-passing language. Finally, you will finish the code for
+ closure conversion.
+
+After this assignment, you will gain deeper understanding about functional
+ programming languages.
+
+\section{What \& Why}
+
+In our source language, function definitions have nested
+static scope, a function can refer to variables of the function in
+ which it is defined. However the notion of a function as a machine-code
+address does not provide for free variables. To elaborate the problem and
+its solution, let us consider how to encode this feature in C programming
+language.
+
+Below is a fragment of code that defines a function \texttt{f} inside another
+function \texttt{g}, while \texttt{f} refers to the argument \texttt{x} of
+function \texttt{g} in its return statement. Namely, there is a free existence
+of variable \texttt{x} in \texttt{f}. Without any doubt, C language
+convention will not allow that. Moreover, to use function \texttt{f} later, we want
+the variable \texttt{x} to be accessible even after the function \texttt{g}
+has returned.
+
+\begin{code}
+int (*g (int x))(int) \{
+  int f (int y)\{
+    return (x+y) ;
+  \}
+  return f;
+\}
+\end{code}
+
+Supposing that the above code was legal, to calculate 3 + 4 by using the above
+function, the main function may look like this:
+
+\begin{code}
+int main ()\{
+  int (*h)(int) = g (3);
+  printf ("%d", h (4));
+  return 0;
+\}
+\end{code}
+
+
+To solve the problems, we use an \emph{environment} to pass
+a function the free variables it needs (such as \texttt{x} here). And
+a function will be converted to a \emph{closure} which contains function code
+and the environment.
+
+Therefore the above code is converted to
+\footnote{To compile this code with a C compiler, one more step is needed:
+function \texttt{f} has to be lifted to top level. We will look at it
+in the next lab.}:
+
+\begin{code}
+void **g (int *env, int x)\{
+  int f (int *env, int y)\{
+    int x = env[0];
+    return (x+y) ;
+  \}
+  int *env0 = malloc(sizeof(int)*1);
+  env0[0] = x;      //build the environment for f
+  void **tuple = malloc(sizeof(void *)*2);
+  tuple[0] = f;
+  tuple[1] = env0;  //construct the closure
+  return tuple;     //return a closure instead of a function
+\}
+\end{code}
+
+Functions now take an extra argument \texttt{env} as the environment, which
+contains the original free variables (such as variable \texttt{x} in \texttt{f} here).
+\texttt{g} will now return a closure instead of a function, the closure contains
+code for \texttt{f} and the environment of \texttt{f}. To use the above function
+to calculate 3 + 4,
+we may run:
+
+\begin{code}
+void main ()\{
+  int * env1 = 0;
+  void ** closure = g(env1, 3);  //g returns the closure of f.
+  void * code = closure[0];   //get function code from the closure
+  int env = closure[1];       //get environment from the closure
+  printf("%d", ((void * (*)())code)(env, 4));
+  //apply the code to the environment and original arguments
+\}
+\end{code}
+
+To perform a function call, we need to unfold the
+corresponding closure and apply the function code (first component of the
+closure) to the environment (second component of the closure) and its arguments.
+
+To be mentioned, as function \texttt{f} can be returned as the result of \texttt{g},
+or stored into a data structure and invoked after \texttt{g} returns,
+the variables in the activation record of \texttt{g}
+may now be used after \texttt{g} has returned. This means that activation records
+can no longer be stored on a stack, but must instead be allocated on a heap.
+We will discuss about this in more detail later in Garbage Collection.
+
+Make sure that you have fully understand the above example before you continue.\\
+
+\section{Calculating free variables}
+
+The first step to perform closure conversion is to calculate the free variables
+inside all function definitions. This allows us to decide which values need to be
+ included in environments (and fetched out from the environments). Only
+ after that will we be able to do closure conversion.
+
+The source language in this lab is exactly the target language in the previous one,
+ i.e., the continuation-passing language. You can review its syntax with Figure 1.
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{tabular}{rrcl}
+(terms) & $K$ & $\to$ & \textsf{letval }$x\ =\ V$ \textsf{ in } $K$ \\
+        &     & $|$ & \textsf{let }$x = \pi _i\ y$\textsf{ in }$K$\\
+        &     & $|$ & \textsf{letcont }$k\ x = K$\textsf{ in }$K'$\\
+        &     & $|$ &  $k\ x$ \\
+        &     & $|$ & $f\ k\ x$ \\
+        &     & $|$ & \textsf{case} $x$ \textsf{of} $k_1\ [\!]\ k_2$\\
+        &     & $|$ & \textsf{letprim} $x=PrimOp\ \vec{y}
+         \texttt{ in}\ K$\\
+        &     & $|$ &\textsf{if0} $x$ \textsf{then} $k_1\ \textsf{else}\ k_2$\\
+        &     & $|$ &\textsf{letfix }$f\ k\ x=K$\textsf{ in }$K'$\\
+
+(values) & $V$ & $\to$ & () \\
+        &     & $|$ & $i$\\
+        &     & $|$ & $"s"$\\
+        &     & $|$ & ($x_1,x_2,\ ...\ , x_n$)\\
+        &     & $|$ & \textsf{in}$_i\ x$\\
+        &     & $|$ &  $\lambda k\ x.K$ \\
+
+(primitives) & $PrimOp$ & $\to$ & $+$ \\
+        &     & $|$ & $-$\\
+        &     & $|$ & $*$\\
+        &     & $|$ & \textsf{print}\\
+        &     & $|$ & \textsf{int2string}\\
+\end{tabular}
+  \caption{CPS syntax}
+  \label{fig-sub}
+\end{figure}
+
+A free variable of an expression is one that is not bound but is used inside
+the expression. Such as the $y$ and $k$ in \textsf{letval }$x=y$
+\textsf{in} $k\ x$. It's worth noticing here that in \textsf{letval }$x=x$
+\textsf{in} $k\ x$, the second "$x$" is also a free variable (and thus should
+also be included in an environment).
+
+Figure 2 and Figure 3 demonstrate the mutual recursive function $\mathcal{F}$ and
+function $\mathcal{H}$ to calculate the free variables of a CPS term and CPS value
+respectively. Both $\mathcal{F}$ and $\mathcal{H}$ return an ordered set of
+ variable names. Function \texttt{set} generate a set of strings from a string list.\\
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+\mathcal{F}\ &:\ \textrm{Cps.t} \to \textrm{string set}\\     %head
+\mathcal{F}(\textsf{letval }x=V\textsf{ in }K)
+    &=(\mathcal{F}(K)/x)\cup \mathcal{H}(V)\\   %letval
+\mathcal{F}(\textsf{let }x=\pi _i\ y\textsf{ in }K)
+    &=(\mathcal{F}(K)/x)\cup \{y\}\\   %let
+\mathcal{F}(\textsf{letcont }k\ x=K\textsf{ in }K')
+    &=(\mathcal{F}(K)/x)\cup (\mathcal{F}(K')/k)\\   %letcont
+\mathcal{F}(k\ x)
+    &=\{k, x\}\\   %cont apply
+\mathcal{F}(f\ k\ x)
+    &=\{f, k, x\}\\   %func apply
+\mathcal{F}(\textsf{case }x\textsf{ of }k_1\ [\!]\ k_2)
+    &=\{x, k_1, k_2\}\\   %case
+\mathcal{F}(\textsf{letprim }x=PrimOp\ \vec{y}\texttt{ in}\ K)
+    &=(\mathcal{F}(K)/x)\cup \texttt{set}(\vec{y})\\   %let prims
+\mathcal{F}(\textsf{if0 }x\textsf{ then }k_1\ \textsf{else }k_2)
+    &=\{x, k_1, k_2\}\\   %if0
+\mathcal{F}(\textsf{letfix }f\ k\ x=K\textsf{ in }K')
+    &=(\mathcal{F}(K)-\{f,k,x\})\cup (\mathcal{F}(K')/f)   %let fix
+\end{align*}
+  \caption{Calculating Free Variables in CPS terms}
+  \label{fig-sub}
+\end{figure}
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+\mathcal{H}\ &:\ \textrm{Cps.v} \to \textrm{string set}\\     %head
+\mathcal{H}(()) &={\O}\\   %empty
+\mathcal{H}(i) &={\O}\\   %integer
+\mathcal{H}("s") &={\O}\\   %string
+\mathcal{H}((x_1, x_2,\ ...\ , x_n)) &=\{x_1, x_2,\ ...\ , x_n\}\\   %tuple
+\mathcal{H}(\textsf{in}_i\ x) &= \{x\}\\        %tag
+\mathcal{H}(\lambda k\ x.K) &= \mathcal{F}(K)-\{k, x\}      %abstraction
+\end{align*}
+  \caption{Calculating Free Variables in CPS values}
+  \label{fig-sub}
+\end{figure}
+
+\noindent{
+\fbox{%
+\parbox{\textwidth}{%
+ \textbf{Exercise 1}. Read the formulas above carefully. Make sure you
+ understand each one before moving on to the next section.
+
+ $\ \ \ $For example, consider this question: In the first rule:
+ \begin{center}
+ $\mathcal{F}(\textsf{letval }x=V\textsf{ in }K)
+    =(\mathcal{F}(K)/x)\cup \mathcal{H}(V)$,
+ \end{center}
+ can we remove $x$ after the union of the two sets? Namely, will
+\begin{center}
+ $\mathcal{F}(\textsf{letval }x=V\textsf{ in }K)
+    =(\mathcal{F}(K)\cup \mathcal{H}(V))/x$
+\end{center}
+ be correct?
+}
+}
+}
+
+\section{Closure Syntax}
+
+In this lab, the target language is a closure-passing language. Wherever
+a function is needed to be returned as a result, or passed as an argument,
+a corresponding closure will be transmitted instead. Aside from that, the
+Closure syntax (shown in Figure 4) is similar to the CPS syntax.
+
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{tabular}{rrcl}
+(terms) & $K$ & $\to$ & \textsf{letval }$x\ =\ V$ \textsf{ in } $K$ \\
+        &     & $|$ & \textsf{let }$x = \pi _i\ y$\textsf{ in }$K$\\
+        &     & $|$ & \textsf{letcont }$k\ env\ x = K$\textsf{ in }$K'$\\
+        &     & $|$ &  $k\ env\ x$ \\
+        &     & $|$ & $f\ env\ k\ x$ \\
+        &     & $|$ & \textsf{case} $x$ \textsf{of in}$_1\ x_1 \Rightarrow K
+                    \ |$ \textsf{in}$_2\ x_2 \Rightarrow K'$\\
+        &     & $|$ & \textsf{letprim} $x=PrimOp\ \vec{y}
+         \texttt{ in}\ K$\\
+        &     & $|$ &\textsf{if0} $x$ \textsf{then} $K\ \textsf{else}\ K'$\\
+        &     & $|$ &\textsf{letfix }$f\ env\ k\ x=K$\textsf{ in }$K'$\\
+
+(values) & $V$ & $\to$ & () \\
+        &     & $|$ & $i$\\
+        &     & $|$ & $"s"$\\
+        &     & $|$ & ($x_1,x_2,\ ...\ , x_n$)\\
+        &     & $|$ & \textsf{in}$_i\ x$\\
+        &     & $|$ &  $\lambda env\ k\ x.K$ \\
+
+(primitives) & $PrimOp$ & $\to$ & $+$ \\
+        &     & $|$ & $-$\\
+        &     & $|$ & $*$\\
+        &     & $|$ & \textsf{print}\\
+        &     & $|$ & \textsf{int2string}\\
+\end{tabular}
+  \caption{Closure syntax}
+  \label{fig-sub}
+\end{figure}
+
+Compared with the CPS syntax, there are basically two aspects of modifications:
+\begin{itemize}
+  \item For function definitions, an extra formal parameter $env$ is attached
+    as the environment of a function:
+    \begin{itemize}
+      \item \textsf{letcont }$k\ \underline{env}\ x = K$\textsf{ in }$K'$
+      \item \textsf{letfix }$f\ \underline{env}\ k\ x=K$\textsf{ in }$K'$
+      \item  $\lambda \underline{env}\ k\ x.K$
+    \end{itemize}
+  \item For function applications (continuations are treated as functions after
+  the CPS phase), an extra actual parameter $env$ is provided:
+    \begin{itemize}
+      \item $k\ \underline{env}\ x$
+      \item $f\ \underline{env}\ k\ x$
+    \end{itemize}
+\end{itemize}
+
+\noindent{
+\fbox{%
+\parbox{\textwidth}{%
+ \textbf{Exercise 2}. Finish the function \texttt{freeVarTerm} and \texttt{freeVarValue}
+  in file \texttt{closure-convert.sml}. Function \texttt{freeVarTerm} calculate
+  the free variables in a CPS term, and function \texttt{freeVarValue} calculate
+  the free variables in a CPS value.
+
+
+  $\ \ $ To rule out redundant calculation and for convenience sake, we store the
+  free variables in closure syntax tree directly. Therefore during
+  the calculation, the CPS syntax term is converted into a closure passing syntax
+  tree carrying information about free variables. This translation is just a naive
+  substitution without doing the actual closure conversion, thus will not
+  carry correctness. We will do the actual closure conversion in the next
+  section.
+
+  $\ \ $ To encode this, function \texttt{freeVarTerm} and \texttt{freeVarValue}
+  return a pair of the converted syntax item and the free variable set of the item,
+  both of them are constructed recursively.
+
+  $\ \ $ There are 3 kind of syntax items where a function will be defined:
+  \begin{quote}
+  \textsf{letcont }$k\ env\ x = K$\textsf{ in }$K'$\\
+  \textsf{letfix }$f\ env\ k\ x=K$\textsf{ in }$K'$\\
+   $\lambda env\ k\ x.K$.
+  \end{quote}
+  Information about free variables of a function is stored where it is defined.
+  You will find an extra component - a string list is attached in closure syntax
+  definitions for the three items in our code.
+
+  $\ \ $ Pay special attention that the free variable sets these three syntax items
+  carrying only contain the free variables of \emph{the function definition}
+  (i.e., free variables of the function body with the arguments excluded), rather
+  than of the entire syntax item. You'll understand this better in the next
+  section.
+
+  $\ \ $ The utility function \texttt{freshCont}, \texttt{freshEnv} and
+  \texttt{freshVal} are provided to generate new exclusive names.
+
+  $\ \ $ You can test your implementation with some examples and examine the
+  printed free variable sets to check whether you
+  have implemented the functions properly.
+}}}\\\\
+
+\noindent{
+\fbox{%
+\parbox{\textwidth}{%
+ \textbf{Exercise 3}. Finish the code in file \texttt{closure.sml} to pretty
+ print a \texttt{Closure.t}. However as we haven't dealt with types, the output
+ is not likely to pass the compilation of SML/NJ.
+
+  $\ \ $ You should print out the information of free variables stored in the closure
+  syntax tree to check your \texttt{freeVarTerm} and \texttt{freeVarValue}
+  function with some examples before continue.
+}
+}
+}\\\\
+
+\section{Closure Conversion}
+
+In this section we will discuss how to perform closure conversion.
+The function $\Theta$ described in Figure 5 and Figure 6 translate a CPS term
+into a closure passing term.\\
+
+While some CPS terms are translated easily with a recursive application of
+$\Theta$, some other CPS terms call for special concern. The latter can be
+divided into a few categories:
+
+\begin{enumerate}
+  \item Function definitions: \textsf{letcont }$k\ x = K$\textsf{ in }$K'$,
+  \textsf{letfix }$f\ k\ x=K$\textsf{ in }$K'$, and $\lambda k\ x.K$.
+
+  Recalling what we have discussed in Section 1, there are some alterations for
+  a syntax item where a function is defined:
+  \begin{enumerate}
+    \item A formal parameter representing the environment is inserted (the $env$
+    field of the target syntax item.).
+    \footnote{However you may want to finish this job during the free variable
+    calculating phase, as the CPS terms are already converted to a closure syntax
+    term there.}
+    \item In a function body, all free variables must be fetched out from the
+    environment first. This is done by adding a series of nested \texttt{let}
+    expression. After the previous section, the free variables we need are
+    already stored in the syntax tree.
+    \item Before entering the "\texttt{in}" body (say $K'$ of
+        \textsf{letcont }$k\ env\ x = K$\textsf{ in }$K'$\\),
+    an actual environment should be generated, by inserting a \texttt{letval}
+    expression that binds a variable with a tuple of the function's free
+    variables. Because we are out of the function definition here, these variables
+    are not "free" now, which means we can access them directly.
+
+    $\ \ $ Then the closure containing the function name and the environment variable
+    is generated via another \texttt{letval} clause. Note that
+    \emph{the closure should have the same name with the original function},$\ \ \ \ $
+    which allows function applications in the "in" body to find the right closure
+    for the right function.
+    \item The term $\textsf{letfix }f\ k\ x=K\textsf{ in }K'$
+    requires special treatment in that the function $f$ might be used inside its
+    function body $K$. The problem is solved easily by inserting
+    "$\texttt{letval }f=(f_{code}, env)\ \texttt{in}\ ...$" outside $K$, to define
+    a closure with the name $f$ consisted of the (new) function name $f_{code}$ and
+    the parameter $env$.
+  \end{enumerate}
+  \item Function applications: $k\ x$, $f\ k\ x$.
+
+
+  To perform a function application, we need to fetch the function code and the
+  environment from the corresponding closure (of the same name with the orignal
+  function in CPS term), and apply the code to the environment and the original
+  arguments.
+
+
+  To unfold the closure, two \texttt{let} expressions are inserted.
+\end{enumerate}
+
+
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+\Theta\ &:\ \textrm{Cps.t} \to \textrm{Closure.t}\\     %head
+\Theta(\textsf{let }x=\pi _i\ y\textsf{ in }K)
+    &=\textsf{let }x=\pi _i\ y\textsf{ in }\Theta(K)\\   %let
+\Theta(\textsf{letcont }k\ x=K\textsf{ in }K')
+    &=\textsf{letcont }k_{code}\ env\ x=\\
+    &\kern1cm   \texttt{let }y_1=\pi _1\ env\ \texttt{in}\\
+    &\kern1.4cm   \texttt{let }y_2=\pi _2\ env\ \texttt{in}\\
+    &\kern1.4cm   ...\\
+    &\kern1.8cm   \texttt{let }y_m=\pi _m\ env\ \texttt{in}\ \Theta(K)\\
+    &\kern0.6cm\textsf{in letval }env'=(y_1, y_2, \ ...\ ,y_m)\texttt{ in}\\
+    &\kern1.6cm\textsf{letval }k=(k_{code}, env')\texttt{ in }\Theta(K')\\ %letcont
+    (&where\ \{y_1,\ ...\ ,y_m\}=\mathcal{F}(K)-\{x\})\\
+\Theta(k\ x)
+    &=\texttt{let }k_{code}=\pi _1\ k\ \texttt{in}\\
+    &\kern1cm   \texttt{let }env=\pi _2\ k\ \texttt{in}\\
+    &\kern1.5cm  k_{code}\ env\ x\\   %cont apply
+\Theta(f\ k\ x)
+    &=\texttt{let }f_{code}=\pi _1\ f\ \texttt{in}\\
+    &\kern1cm   \texttt{let }env=\pi _2\ f\ \texttt{in}\\
+    &\kern1.5cm  f_{code}\ env\ k \ x\\   %func apply
+\Theta(\textsf{case }x\textsf{ of }k_1\ [\!]\ k_2)
+    &=\textsf{case }x\textsf{ of in}_1\ x_1\Rightarrow \Theta(k_1\ x_1)\\
+    &\kern1.6cm  |\ \textsf{in}_2\ x_2\Rightarrow \Theta(k_2\ x_2)\\   %case
+\Theta(\textsf{letprim }x=PrimOp\ \vec{y}\texttt{ in}\ K)
+    &=\textsf{letprim }x=PrimOp\ \vec{y}\texttt{ in}\ \Theta(K)\\   %let prims
+\Theta(\textsf{if0 }x\textsf{ then }k_1\ \textsf{else }k_2)
+    &=\textsf{letval }x_1=()\textsf{ in}\\
+    &\kern1cm \textsf{if0 }x\textsf{ then }\Theta(k_1\ x_1)
+    \ \textsf{else }\Theta(k_2\ x_1)\\
+\Theta(\textsf{letfix }f\ k\ x=K\textsf{ in }K')   %if0
+    &=\textsf{letfix }f_{code}\ env\ k\ x=\\
+    &\kern1cm   \texttt{letval }f=(f_{code}, env)\ \texttt{in}\\
+    &\kern1.4cm   \texttt{let }y_1=\pi _1\ env\ \texttt{in}\\
+    &\kern1.8cm   \texttt{let }y_2=\pi _2\ env\ \texttt{in}\\
+    &\kern1.8cm   ...\\
+    &\kern2.2cm   \texttt{let }y_m=\pi _m\ env\ \texttt{in}\ \Theta(K)\\
+    &\kern0.6cm\textsf{in letval }env'=(y_1, y_2, \ ...\ ,y_m)\texttt{ in}\\
+    &\kern1cm\textsf{letval }f=(f_{code}, env')\texttt{ in }\Theta(K')\\  %let fix
+    (&where\ \{y_1,\ ...\ ,y_m\}=\mathcal{F}(K)-\{f,k,x\})
+\end{align*}
+  \caption{Closure Conversion for CPS terms}
+  \label{fig-sub}
+\end{figure}
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+\Theta\ &:\ \textrm{Cps.t} \to \textrm{Closure.t}\\     %head
+\Theta(\textsf{letval }x=()\textsf{ in }K)
+    &=\textsf{letval }x=()\textsf{ in }\Theta(K)\\   %letval: empty
+\Theta(\textsf{letval }x=i\textsf{ in }K)
+    &=\textsf{letval }x=i\textsf{ in }\Theta(K)\\   %letval: int
+\Theta(\textsf{letval }x="s"\textsf{ in }K)
+    &=\textsf{letval }x="s"\textsf{ in }\Theta(K)\\   %letval: string
+\Theta(\textsf{letval }x=(x_1, x_2,\ ...\ , x_n)\textsf{ in }K)
+    &=\textsf{letval }x=(x_1, x_2,\ ...\ , x_n)\textsf{ in }
+    \Theta(K)\\ %letval:tuple
+\Theta(\textsf{letval }x=\textsf{in}_i\ y\textsf{ in }K)
+    &=\textsf{letval }x=\textsf{in}_i\ y\textsf{ in }\Theta(K)\\%letval: tag
+\Theta(\textsf{letval }x=\lambda k\ z.K\textsf{ in }K')
+    &=\textsf{letval }x_{code}=\lambda env\ k\ z.\\
+    &\kern1cm   \texttt{let }y_1=\pi _1\ env\ \texttt{in}\\
+    &\kern1.4cm   \texttt{let }y_2=\pi _2\ env\ \texttt{in}\\
+    &\kern1.4cm   ...\\
+    &\kern1.8cm   \texttt{let }y_m=\pi _m\ env\ \texttt{in}\ \Theta(K)\\
+    &\kern0.6cm\textsf{in letval }env'=(y_1, y_2, \ ...\ ,y_m)\texttt{ in}\\
+    &\kern1.6cm\textsf{letval }x=(x_{code}, env')\texttt{ in }\Theta(K')\\
+    (&where\ \{y_1,\ ...\ ,y_m\}=\mathcal{F}(K)-\{k, z\})%letval: func
+\end{align*}
+  \caption{Closure Conversion for CPS terms (continued)}
+  \label{fig-sub}
+\end{figure}
+
+
+
+\noindent{
+\fbox{%
+\parbox{\textwidth}{%
+ \textbf{Exercise 4}. Finish the code in file \texttt{closure-convert.sml} for the
+function \texttt{convert} that performs the actual closure conversion.
+ Before you start, make sure that you understand the rules in Figure 5 and 6
+ thoroughly.
+
+ $\ \ $ You can test your implementation on the give example, or write some of your
+ own examples.
+}
+}
+}\\
+
+\end{document}

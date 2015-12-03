@@ -1,0 +1,494 @@
+% ----------------------------------------------------------------
+% Article Class (This is a LaTeX2e document)  ********************
+% ----------------------------------------------------------------
+\documentclass{article}
+\usepackage[english]{babel}
+\usepackage{styfiles/proof, styfiles/code, amsmath,amsthm}
+\usepackage{bbold}%for typeface: mathbb
+\usepackage{hyperref}
+% THEOREMS -------------------------------------------------------
+\newtheorem{thm}{Theorem}[section]
+\newtheorem{cor}[thm]{Corollary}
+\newtheorem{lem}[thm]{Lemma}
+\newtheorem{prop}[thm]{Proposition}
+\theoremstyle{definition}
+\newtheorem{defn}[thm]{Definition}
+\theoremstyle{remark}
+\newtheorem{rem}[thm]{Remark}
+\numberwithin{equation}{section}
+
+% ----------------------------------------------------------------
+\begin{document}
+
+\newcommand{\env}[1]{[\![#1]\!]\kappa}
+\newcommand{\round}[1]{(\!|#1|\!)}
+
+\title{CPS Conversion}%
+\author{Di Zhao}%
+%\address{address}%
+%\thanks{}%\sqrt{}
+\date{\small{\texttt{zhaodi01@mail.ustc.edu.cn}}}%
+% ----------------------------------------------------------------
+
+\maketitle
+% ----------------------------------------------------------------
+
+This is the first assignment of the course - Advanced Topics in
+Software Technologies in the 2014-2015 academic year. During this
+course, we will explore the techniques in functional language
+compilation. You are required to finish
+the implementation of the Monkey Compiler for the simplified ML
+language. Within the procedure (hopefully, if you work hard),
+ you will gain deep understanding of compilation techniques
+ and programming languages.
+
+In this assignment, we will introduce the Continuation-Passing
+Style (CPS), which is a program notation that makes every aspect
+of control flow and data flow explicit.
+
+First, you need to get familiar with our source language: the
+simplified ML language, and then the syntax of the
+continuation-passing language - our target language in lab1.
+Finally, you will finish the code for CPS conversion to
+translate the expressions of the source language into ones
+ of the target language.
+
+\section{ML Syntax}
+
+Our source language is a subset of the Standard ML (SML) - a language
+from the ML family. SML is a functional programming language with
+ compile-time type checking and type inference, garbage collection,
+ exception handling and some other features. ML is functional in that
+ functions can be passed as arguments, stored in data structures, and
+returned as results of function calls. Functions can be statically
+nested within other functions. Computation in ML is driven by
+evaluation of expressions, rather than execution of commands, as in
+imperative languages such as C or Java. For more details, refer to
+book "Programming in Standard ML" or \href{http://www.smlnj.org/}
+{\texttt{ http://www.smlnj.org/}}.
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{tabular}{rclr}
+$e$ & $\to$ & $x$ & \emph{variable}\\
+  %   &   & $t$ \textsf{primop} $t'$& \emph{arithmetic term}\\
+     & $|$   & \texttt{()} & \emph{empty}\\
+     & $|$   & $i$ & \emph{integer}\\
+     & $|$   & $"s"$ & \emph{string}\\
+     &  $|$  & \texttt{fn} $x$\texttt{ => }$e$ & \emph{abstraction}\\
+     &  $|$  & $e_1\ e_2$ & \emph{application}\\
+     &  $|$  & ($e_1,e_2, ..., e_n$) & \emph{tuple}\\
+     &  $|$  & \texttt{\#}$i\ e$  & \emph{projection}\\
+     &  $|$  & \textsf{in}$i\ e$  & \emph{tagged value}\\
+     &  $|$  & \textsf{case }$e$ \textsf{of in1 }$x_1\texttt{ => } e_1|$
+     \textsf{in2 }$x_2 \texttt{ => } e_2$  & \emph{case}\\
+     &  $|$  & $PrimOp\ \vec{e}$ & \emph{primitive}\\
+     &  $|$  & \textsf{let val }$x=e_1$\textsf{ in }$e_2$\textsf{ end}
+         & \emph{let}\\
+     &  $|$  & \textsf{if0 }$e$\textsf{ then }$e_1$\textsf{ else }$e_2$
+         & \emph{if0}\\
+     &  $|$  & \textsf{let fix }$f\ x=e_1$\textsf{ in }$e_2$\textsf{ end}
+         & \emph{fix}\\
+$PrimOp$ & $\to$ & $+$ & \emph{add}\\
+     & $|$ & $-$ & \emph{sub}\\
+     & $|$ & $*$ & \emph{times}\\
+     & $|$ & $\texttt{print}$ & \emph{print}\\
+     & $|$ & $\texttt{int2string}$ & \emph{toString}\\
+
+\end{tabular}
+  \caption{ML Syntax}
+  \label{fig-sub}
+\end{figure}
+
+Figure 1 illustrates the syntax of our source language - a subset
+ of ML. Here we use the metavariable $e$ to represent an arbitrary
+ expression of the source language. Similarly, $x$ is a metavariable
+ranging over variables.
+
+To be more detailed, for example, \texttt{fn} $x$\texttt{ => }$e$
+stands for the abstraction $\lambda x. e$ of the lambda-calculus, in
+ which the body $e$ in turn is another expression. Then we have the application
+ expression $e_1\ e_2$ which means replacing the argument in the body of
+ abstraction $e_1$ with $e_2$.
+
+($e_1,e_2, ..., e_n$) is a tuple with $n$ components. Note that in the
+ML language, $n$ must be no less than 2.
+ \texttt{\#}$i\ e$ represents  the projection operation that selects
+  the $i$th component of $e$. Here $e$ should be a tuple. We will
+not concern about type checking for now.
+
+\textsf{in}$i\ e$ is a tagged value, that append a tag $i$ to the
+expression $e$. The case expression: \textsf{case }$e$ \textsf{of in1 }
+$x_1\texttt{ => } e_1|$ \textsf{in2 }$x_2 \texttt{ => } e_2$ ,
+will be evaluated to the result of expression $e_1$ or $e_2$ according to
+the specific tag in expression $e$, namely, here $e$ should be a tagged
+value.
+
+$PrimOp\ \vec{e}$ represents a primitive operation of expressions,
+within which $\vec{e}$ stands for a list of expressions. For example,
+\texttt{print} performs on a single expression, so a print expression will be:
+ $\texttt{print}\ [e]$. Similarly, a sub expression will be:
+ $\texttt{-}\ [e_1, e_2]$, which means $e_1 - e_2$.
+
+\textsf{if0 }$e$\textsf{ then }$e_1$\textsf{ else }$e_2$ is a branch
+expression. If $e$ evaluates to 0, then the if0 expression will be
+evaluated to the evaluation result of $e_1$, else to the result of
+$e_2$. $e_1$ and $e_2$ should be of the same type.
+
+\textsf{let fix }$f\ x=e_1$\textsf{ in }$e_2$\textsf{ end} is a fix
+expression that defines a recursive function $f$ with an argument
+$x$ and function body $e_1$ in the expression $e_2$. $f$ is recursive
+in that it can appear in $e_1$ as a free variable.
+
+To help printing the numeric result, \texttt{int2string}
+operation takes an integer and returns a corresponding
+string. For example, \texttt{int2string} 4 is evaluated to "4".
+
+"\textsf{()}" stands for the constant value of "Empty". $i$ stands for
+a constant integer, $"s"$ is a constant string value.
+
+If you are confused with the syntax, Chapter 3 and 5 of the book
+\textit{Types and Programming Languages} or \href{
+http://www.cs.cmu.edu/~rwh/smlbook/}{\textit{Programming in Standard ML}}
+ should be helpful.\\
+
+\noindent{
+\fbox{%
+\parbox{\textwidth}{%
+ \textbf{Exercise 1}. Finish the code in file \texttt{ml-ast.sml} for the
+function \texttt{dumpt} that
+ print the ML expression to a text file. Before you start, make sure
+ that you understand the datatype definition in file \texttt{ml-ast.sml}
+  and file \texttt{ml-ast.sig}. Once you're done with this task, the
+ text printed should be a legal function that can be executed in SML/NJ.
+}
+}
+}
+
+
+
+\section{CPS Syntax}
+
+Continuation-passing style (CPS) is a program notation that makes every
+aspect of control flow and data flow explicit. It also has the advantage
+ that it's closely related to Church's lambda-calculus, which has a well-defined
+  and well-understood meaning.
+
+To illustrate the Continuation-passing style, consider the ML program below:
+\begin{code}
+fun f x =
+    x + 1
+\end{code}
+
+
+In CPS, all the intermediate results need to be named. Also, it would be
+helpful to name the return address$-$let's call it \texttt{k}. Then we can
+ express the
+returning of a function using \emph{continuations}. A continuation is a
+function that expresses "what to do next". We can give a function a
+continuation as one of its arguments, and apply the result to it when the
+function returns. So the CPS version of the above program might look like this:
+
+\begin{code}
+fun f (k, x) =
+    let val x\_1 = 1
+    in  let val x\_2 = x + x\_1
+        in k x\_2
+        end
+    end
+\end{code}
+
+Aside from that, the CPS-based language, i.e. our target language
+in lab1 has a similar syntax to that of the ML language. Figure 2
+ illustrates the syntax of the CPS language corresponding
+to the ML syntax in Figure 1.
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{tabular}{rrcl}
+(terms) & $K$ & $\to$ & \textsf{letval }$x\ =\ V$ \textsf{ in } $K$ \\
+        &     & $|$ & \textsf{let }$x = \pi _i\ y$\textsf{ in }$K$\\
+        &     & $|$ & \textsf{letcont }$k\ x = K$\textsf{ in }$K'$\\
+        &     & $|$ &  $k\ x$ \\
+        &     & $|$ & $f\ k\ x$ \\
+        &     & $|$ & \textsf{case} $x$ \textsf{of} $k_1\ [\!]\ k_2$\\
+        &     & $|$ & \textsf{letprim} $x=PrimOp\ \vec{y}
+         \texttt{ in}\ K$\\
+        &     & $|$ &\textsf{if0} $x$ \textsf{then} $k_1\ \textsf{else}\ k_2$\\
+        &     & $|$ &\textsf{letfix }$f\ k\ x=K$\textsf{ in }$K'$\\
+
+(values) & $V$ & $\to$ & () \\
+        &     & $|$ & $i$\\
+        &     & $|$ & $"s"$\\
+        &     & $|$ & ($x_1,x_2, ..., x_n$)\\
+        &     & $|$ & \textsf{in}$_i\ x$\\
+        &     & $|$ &  $\lambda k\ x.K$ \\
+
+(primitives) & $PrimOp$ & $\to$ & $+$ \\
+        &     & $|$ & $-$\\
+        &     & $|$ & $*$\\
+        &     & $|$ & \textsf{print}\\
+        &     & $|$ & \textsf{int2string}\\
+\end{tabular}
+  \caption{CPS syntax}
+  \label{fig-sub}
+\end{figure}
+
+In the CPS syntax, we introduce the metavariable $k$ to represent
+a continuation. Thus there are two kinds of application:
+\begin{itemize}
+  \item the function application: $f\ k\ x$, in which function
+$f$ takes two arguments: $k$ and $x$.
+  \item the continuation application: $k\ x$, corresponding to a jump
+   or a return, to pass the partial result $x$ via continuation $k$.
+\end{itemize}
+
+Besides, you may have noticed that in pair value ($x,y$), tagged value
+\textsf{in}$_i\ x$, case term \textsf{case} $x$ \textsf{of} $k_1\ [\!]\ k_2$
+, and the application terms, only variables rather than expressions
+ (containing substructures) are allowed to exist.
+Also, in term \textsf{let }$x = \pi _i\ y$\textsf{ in }$K$
+(corresponding to project operation in the ML syntax),
+$y$ (the subject to perform projection) is a variable.
+  These alterations enforces that all intermediate results are named.
+
+The term \texttt{Exit of string} defined in file \texttt{cps.sml}
+and file \texttt{cps.sig} is considered to be a special kind of continuation
+  application. It is for the purpose that initially, to translate an ML expression,
+ a translate function $\kappa$ which takes a variable and return a CPS
+ expression need to be given as an arguments. A reasonable choice for the initial
+ $\kappa$ could be \texttt{fn x => Exit(x)}. (See the \textbf{Section 3}
+ below to understand this.)\\
+
+\noindent{
+\fbox{%
+\parbox{\textwidth}{%
+ \textbf{Exercise 2}. Finish the code in file \texttt{cps.sml} for the
+function \texttt{dump2file} that
+ print the CPS expression to a text file. Before you start, make sure
+ that you understand the datatype definition in file \texttt{cps.sml}
+  and file \texttt{cps.sig}. Once again, the text you printed should
+ be a legal function that can be executed in SML/NJ.
+  You can test your implementation on the give example, or write some of your
+ own examples.
+}
+}
+}\\\\
+
+The CPS representation is easy for optimizing compilers to manipulate and
+transform. For example, we would like to perform tail-recursion elimination: If a
+function f calls a function g as the very last thing it does, then instead of passing
+g a return address within f, it could pass to g the return address that f was given
+by f's caller. Then, when g returned, it would return directly to the caller of f.
+
+For more details, you may refer to \href{
+http://research.microsoft.com/pubs/64044/compilingwithcontinuationscontinued.pdf}
+{\emph{Compiling with Continuations, Continued}}.
+
+\section{CPS Conversion}
+
+In this section we will discuss how to perform CPS conversion.
+Expressions in ML can be translated into untyped CPS
+terms using the function shown in Figure 3. This is an adaptation
+of the standard higher-order one-pass call-by-value transformation
+(Danvy and Filinski 1992).
+
+ \begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+ [\![\cdot]\!] \ &\ :\ \textrm{ML}\rightarrow(\textrm{Var}\rightarrow
+    \textrm{CTm})\rightarrow \textrm{CTm}\\     %head
+   \env{x} \  &=\  \kappa (x)\\             %var
+ \env{\texttt{()}} \  &=\  \texttt{letval}\ x=()\ \texttt{in}\ \kappa (x)\\ %empty
+ \env{i} \  &=\  \texttt{letval}\ x=i\ \texttt{in}\ \kappa (x)\\    %int
+ \env{"s"} \  &=\  \texttt{letval}\ x="s"\ \texttt{in}\ \kappa (x)\\    %string
+ \env{e_1\ e_2} \  &=\  [\![e_1]\!](\mathbb{\Lambda}z_1.[\![e_2]\!]
+ (\mathbb{\Lambda}z_2.\texttt{letcont}\ k\ x=
+    \kappa (x)\ \texttt{in}\ z_1\ k\ z_2))\\ %app
+  \env{(e_1, ... , e_n)}
+        &=\round{[e_1, ... , e_n], \texttt{nil}}(\mathbb{\Lambda}\vec{l}.\\
+        &\kern1cm \texttt{letval}\ x=\texttt{tuple}(\vec{l})\
+        \texttt{in}\ \kappa (x))\\            % tuple
+   [\![\texttt{in}i\ e]\!]\kappa \  &=\  [\![e]\!](\mathbb{\Lambda}z.
+        \texttt{letval}\ x=\texttt{in}_i\ z\ \texttt{in}\ \kappa (x))\\    %tag
+  [\![\texttt{\#}i\ e]\!]\kappa \  &=\  [\![e]\!](\mathbb{\Lambda}z.
+        \texttt{let}\ x=\pi_i z\ \texttt{in}\ \kappa (x))\\       %proj
+  \env{\texttt{fn }x\texttt{ => }e}\  &=\ \texttt{letval}\ f=\lambda k\ x.[\![e]\!]
+    (\mathbb{\Lambda}z.k\ z)\ \texttt{in}\ \kappa (f)\\     %abstract
+  [\![\texttt{let\ val }x=e_1\ \texttt{in}\ e_2\ \texttt{end}]\!]\kappa
+   &= \texttt{letcont}\ j\ x=[\![e_2]\!]\ \kappa\ \texttt{in}
+            \ [\![e_1]\!](\mathbb{\Lambda}z.j\ z)\\     %letval
+  \kern-1.2cm [\![\texttt{case}\ e\ \texttt{of\ in1}\ x_1\texttt{ => }e_1|
+        \texttt{in2}\ x_2\texttt{ => } e_2]\!]\kappa
+     &=\ [\![e]\!](\mathbb{\Lambda}z.\texttt{letcont}\ k_0\ x_0=
+            \kappa (x_0)\ \texttt{in}\\
+         &\kern1cm   \texttt{letcont}\ k_1\ x_1=
+            [\![e_1]\!](\mathbb{\Lambda}z.k_0\ z)\ \texttt{in}\\
+     &\kern1.2cm \texttt{letcont}\ k_2\ x_2=[\![e_2]\!]
+        (\mathbb{\Lambda}z.k_0\ z)\ \texttt{in}\\
+     &\kern2cm    \texttt{case}\ z\ \texttt{of}\ k_1\ [\!]\ k_2)\\    %case
+     \env{PrimOp\ \vec{e}\ }
+       &=\round{\vec{e}, \texttt{nil}}(\mathbb{\Lambda}\vec{l}.   \texttt{letprim}
+       \ x=PrimOp\ \vec{l}\ \texttt{in}\ \kappa (x)))\\  %prims
+   \env{\texttt{let fix }f\ x\texttt{ = }e_1 \texttt{ in }e_2}\  &=
+   \ \texttt{letfix}\ f\ k\ x=[\![e_1]\!]
+    (\mathbb{\Lambda}z.k\ z)\ \texttt{in}\ \env{e_2}\\     %fix
+    \kern-1.2cm [\![\texttt{if0}\ e_1\ \texttt{then}\ e_2
+        \texttt{ else}\ e_3]\!]\kappa
+     &=\ [\![e_1]\!](\mathbb{\Lambda}z.\texttt{letcont}\ k_0\ x_0=
+            \kappa (x_0)\ \texttt{in}\\
+         &\kern1cm   \texttt{letcont}\ k_1\ x_1=
+            [\![e_2]\!](\mathbb{\Lambda}z.k_0\ z)\ \texttt{in}\\
+     &\kern1.2cm     \texttt{letcont}\ k_2\ x_2=[\![e_3]\!]
+        (\mathbb{\Lambda}z.k_0\ z)\ \texttt{in}\\
+     &\kern2cm    \texttt{if0}\ z\ \texttt{then}\ k_1\ \texttt{else}\ k_2)    %if0
+\end{align*}
+  \caption{CPS Conversion}
+  \label{fig-sub}
+\end{figure}
+
+\begin{figure}[!ht]
+  % Requires \usepackage{graphicx}
+  \centering
+\begin{align*}
+    \round{\cdot}\ :\ \textrm{ML list * string list}&\to(\textrm{string list}\to
+     \textrm{CTm})\to \textrm{CTm}\\     %head
+     \round{\texttt{[]}, \omega}\eta
+        &=\eta (\texttt{rev} (\omega))\\   %empty
+     \round{e::es, \omega}\eta
+       &=\  [\![e]\!](\mathbb{\Lambda}x.
+          \round{es,x::\omega}\eta )     %some
+\end{align*}
+
+  \caption{CPS Conversion for tuples}
+  \label{fig-sub}
+\end{figure}
+
+The transformation works by taking a translation-time function
+$\kappa$ as argument, representing the 'context' into which the translation
+of the source term is embedded. For our language, the context's
+argument is a variable, as all intermediate results are named.
+Note some conventions used in Figure 3: translation-time lambda abstraction
+is written using $\mathbb{\Lambda}$ and translation-time application is
+written $\kappa$(...), to distinguish from $\lambda$ and juxtaposition
+ used to denote lambda abstraction and application in the target language.
+ Also note that any object variables present in the target terms but not in
+the source are assumed fresh with respect to all other bound variables.
+
+
+The translate procedure $[\![\cdot]\!]$ takes two arguments:
+\begin{enumerate}
+\item an ML term;
+\item a translation-time function that convert a variable into a CPS term.
+\end{enumerate}
+
+The translation-time functions could be generated during the translate procedure,
+and will be used to generate CPS terms. As an example, consider the conversion
+$[\![(\texttt{fn }x\texttt{ => }1)\ 2]\!]\kappa$, where $\kappa$ is assumed to
+be $\texttt{fn }x\texttt{ => exit}\ x$:
+
+\begin{itemize}
+\item Firstly, we have rule
+\begin{center}
+$\env{e_1\ e_2} \  =\  [\![e_1]\!](\mathbb{\Lambda}z_1.[\![e_2]\!]
+ (\mathbb{\Lambda}z_2.\texttt{letcont}\ k\ x=\kappa (x)\ \texttt{in}\ z_1\ k\ z_2))$
+\end{center}
+so the original expression is converted to:
+\begin{center}
+  $[\![\texttt{fn }x\texttt{ => }1]\!](\mathbb{\Lambda}z_1.[\![2]\!]
+ (\mathbb{\Lambda}z_2.\texttt{letcont}\ k1\ x=
+    \textsf{exit}\ x\ \texttt{in}\ z_1\ k1\ z_2))$.
+\end{center}
+$k1$ is a fresh continuation.
+
+\item As the rule to convert an integer goes to:
+\begin{center}
+  $\env{i} \  =\  \texttt{letval}\ x=i\ \texttt{in}\ \kappa (x)$,
+\end{center}
+we have
+\begin{align*}
+  [\![\texttt{fn }x\texttt{ => }1]\!](\mathbb{\Lambda}z_1.&\texttt{letval}\ x1=2\\
+   &\texttt{in}\ \texttt{letcont}\ k1\ x=\textsf{exit}\ x\ \texttt{in}\ z_1\ k1\ x1).
+\end{align*}
+Notice that the variable $x1$ is a fresh one.
+
+\item Then, as the rule to convert an abstraction is:
+\begin{center}
+  $\env{\texttt{fn }x\texttt{ => }e}\ =
+        \texttt{letval}\ f=\lambda k\ x.[\![e]\!]
+    (\mathbb{\Lambda}z.k\ z)\ \texttt{in}\ \kappa (f)$,
+\end{center}
+the original expression is converted to:
+\begin{align*}
+  &\texttt{letval}\ f=\lambda k\ x.[\![1]\!]
+    (\mathbb{\Lambda}z.k\ z)\\
+     &\texttt{in}\ \texttt{letval}\ x1=2\\
+   &\kern0.5cm \texttt{in}\ \texttt{letcont}\ k1\ x=
+    \textsf{exit}\ x\ \texttt{in}\ f\ k1\ x1.
+\end{align*}
+
+\item Finally, apply the rule to convert a integer again, we have the result:
+\begin{align*}
+  &\texttt{letval}\ f=\lambda k\ x.\texttt{letval}\ x2=1\ \texttt{in}\ k\ x2\\
+     &\texttt{in}\ \texttt{letval}\ x1=2\\
+   &\kern0.5cm \texttt{in}\ \texttt{letcont}\ k1\ x=
+    \textsf{exit}\ x\ \texttt{in}\ f\ k1\ x1.
+\end{align*}
+\end{itemize}
+
+As the CPS convert for an ML tuple need to generate
+ a CPS tuple with indefinite length, we need a different function.
+ Here we have an additional function, denoted as $\round{\ }$ to help to
+ translate an tuple expression (as shown in Figure 4). Note that
+  $\round{\ }$  and $[\![\ ]\!]$.
+ are mutually recursive. $\round{\ }$ takes a pair of an ML tuple and
+ a string list (representing the variables that already generated) and a
+ function $\eta$ that takes a string list and returns a CPS term.
+The rule for a tuple that is not empty: $\round{e::es, \omega}\eta
+       =[\![e]\!](\mathbb{\Lambda}x.
+          \round{es,x::\omega}\eta )$,
+uses [\![$e$]\!] to transfer the first expression, and then add the
+corresponding variable (will be the $x$ when $(\mathbb{\Lambda}x.
+          \round{es,x::\omega}\eta )$ is applied) to the list $\omega$.
+When all the expressions are converted, rule $\round{\texttt{[]}, \omega}\eta
+        =\eta (\texttt{rev} (\omega))$ applies the function $\eta$
+        on the reversion of list $\omega$ to generate the CPS as the result.
+(Function \texttt{tuple} convert a string list to a CPS tuple, function
+\texttt{rev} returns the reversion of a string list.)
+
+Think carefully about the rules above. e.g. Why in $\round{\texttt{[]}, \omega}\eta
+        =\eta (\texttt{rev} (\omega))$, the list $\omega$ is converted?
+It will be helpful for you to write some examples and do the translation
+by hand to understand
+the procedure.\\
+
+\noindent{
+\fbox{%
+\parbox{\textwidth}{%
+ \textbf{Exercise 3}. Finish the code in file \texttt{cps-convert.sml} for the
+function \texttt{trans} that convert the ML expressions into CPS expressions.
+ Before you start, make sure that you understand the rules in Figure 3 and the
+ example we discussed above. The utility function \texttt{freshCont} and
+ \texttt{freshVal} are provided to generate new variable and continuation names.
+
+  You can test your implementation on the give example, or write some of your
+ own examples.
+}
+}
+}\\
+
+\iffalse
+
+\section{Challenge}
+1. The translation rules in Figure 3 is somehow naive. For example, the conversion
+of a ML case expression duplicates the context. Consider,
+ for example, $f\ (\textsf{case }
+x\ \textsf{of in1 } x_1 => e_1|\ \textsf{in2 } x_2 => e_2)$ whose
+translation involves two calls to $f$. Modify the rule and your code to eliminate
+the code redundancy it causes.
+
+\fi
+\end{document}
